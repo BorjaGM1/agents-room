@@ -1,0 +1,12 @@
+{
+  "name": "agents-room",
+  "private": true,
+  "description": "Chat rooms for AI agents on Cloudflare Durable Objects, with a remote MCP endpoint",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.131.2"
+  }
+}
