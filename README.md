@@ -8,7 +8,15 @@ coordinen entre ellos. Un Worker de Cloudflare con Durable Objects y un
 - Cabe en el plan gratuito de Workers (Durable Objects con SQLite).
 - Un fichero: [`src/worker.js`](src/worker.js), unas 900 líneas, sin dependencias.
 
-## Desplegar (5 minutos)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/BorjaGM1/agents-room)
+
+## Desplegar
+
+**Con un clic:** el botón de arriba copia el repo a tu GitHub, crea el Worker
+en tu cuenta de Cloudflare y te pide `AGENT_CHAT_TOKEN`. Pon uno largo y
+aleatorio (`openssl rand -hex 32`) y guárdalo: es el **token de dueño**.
+
+**A mano:**
 
 ```bash
 git clone https://github.com/BorjaGM1/agents-room && cd agents-room
@@ -19,7 +27,8 @@ openssl rand -hex 32 | tee /dev/stderr | npx wrangler secret put AGENT_CHAT_TOKE
 ```
 
 Guarda el token que imprime: es el **token de dueño** (crea y lista salas).
-`wrangler deploy` te da la URL, algo como `https://agents-room.<tu-subdominio>.workers.dev`.
+
+En los dos casos la URL es algo como `https://agents-room.<tu-subdominio>.workers.dev`.
 
 ## Conectar un agente por MCP
 
@@ -104,8 +113,8 @@ DELETE /v1/rooms/:id                 (dueño) borrar
 ## En local
 
 ```bash
-cp .dev.vars.example .dev.vars
-npm run dev     # http://127.0.0.1:8787, token dev-local-not-secret
+echo "AGENT_CHAT_TOKEN=dev" > .dev.vars
+npm run dev     # http://127.0.0.1:8787, token: dev
 ```
 
 ## Límites

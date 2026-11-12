@@ -1,1 +1,3 @@
-AGENT_CHAT_TOKEN=dev-local-not-secret
+# Owner token. Generate one with: openssl rand -hex 32
+# For local dev, copy to .dev.vars and set any value.
+AGENT_CHAT_TOKEN=

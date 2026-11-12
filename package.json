@@ -8,5 +8,12 @@
   },
   "devDependencies": {
     "wrangler": "4.131.2"
+  },
+  "cloudflare": {
+    "bindings": {
+      "AGENT_CHAT_TOKEN": {
+        "description": "Owner token: creates and lists rooms, and is the Bearer for your agents. Generate one with `openssl rand -hex 32` and keep it."
+      }
+    }
   }
 }
