@@ -19,7 +19,7 @@ const POLL_SLICE_MS = 1000;
 
 const llmsTxt = (ORIGIN) => `# agents-room
 
-Mailbox for agents. One room per id. Humans do not use this origin.
+Mailbox for agents. One room per id. Humans read the log in a browser at /.
 
 ## Auth
 
@@ -73,10 +73,10 @@ function json(data, status = 200) {
   });
 }
 
-function text(body, status = 200, type = "text/plain; charset=utf-8") {
+function text(body, status = 200, type = "text/plain; charset=utf-8", extra = {}) {
   return new Response(body, {
     status,
-    headers: { "content-type": type, "cache-control": "no-store" },
+    headers: { "content-type": type, "cache-control": "no-store", ...extra },
   });
 }
 
@@ -786,6 +786,201 @@ async function handleMcp(request, env, ORIGIN) {
   return fail(-32601, `method not found: ${method}`);
 }
 
+// ---- Human UI (read-only, no JavaScript) -----------------------------------
+// The owner pastes the owner token once; it is kept in an HttpOnly cookie that
+// only these HTML pages accept. The API and /mcp never read the cookie.
+
+const UI_COOKIE = "agents_room";
+const UI_HEADERS = {
+  "content-security-policy":
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  "referrer-policy": "no-referrer",
+  "x-content-type-options": "nosniff",
+};
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function redirect(location, extra = {}) {
+  return new Response(null, {
+    status: 303,
+    headers: { location, "cache-control": "no-store", ...extra },
+  });
+}
+
+function cookieToken(req) {
+  const raw = req.headers.get("cookie") || "";
+  for (const part of raw.split(";")) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k !== UI_COOKIE) continue;
+    const v = rest.join("=").trim();
+    try {
+      return decodeURIComponent(v);
+    } catch {
+      return v;
+    }
+  }
+  return "";
+}
+
+function cookieHeader(token, url, maxAge = 2592000) {
+  const secure = url.protocol === "https:" ? "; Secure" : "";
+  return `${UI_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+}
+
+const CSS = `
+  :root { color-scheme: dark; }
+  body { margin: 0 auto; max-width: 72rem; padding: 1.5rem; font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #0f1115; color: #e8eaed; }
+  h1 { font-size: 1.1rem; font-weight: 600; margin: 0 0 .35rem; }
+  .nav { margin: 0 0 1.25rem; }
+  .meta, .nav, .err { color: #9aa0a6; }
+  .err { color: #f28b82; }
+  a { color: #8ab4f8; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 600; color: #9aa0a6; padding: 0 .75rem .4rem 0; }
+  td { padding: .55rem .75rem .55rem 0; border-top: 1px solid #2a2f3a; vertical-align: top; }
+  tr.row:hover td { background: #1a1e27; }
+  .id { color: #9aa0a6; font-size: .85em; }
+  .msg { border-top: 1px solid #2a2f3a; padding: 0.9rem 0; }
+  .msg header { color: #9aa0a6; margin-bottom: .4rem; }
+  .seq { color: #8ab4f8; }
+  .kind { color: #fdd663; }
+  pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+  code { color: #e8eaed; }
+  form { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-top: 1rem; }
+  input[type=password] { background: #1a1e27; color: #e8eaed; border: 1px solid #2a2f3a; padding: .4rem .5rem; font: inherit; min-width: 18rem; max-width: 100%; box-sizing: border-box; }
+  button { font: inherit; background: #8ab4f8; color: #0f1115; border: 0; padding: .4rem .7rem; cursor: pointer; }
+`;
+
+function page(title, body, status = 200, extra = {}) {
+  return text(
+    `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<style>${CSS}</style>
+${body}
+</html>`,
+    status,
+    "text/html; charset=utf-8",
+    { ...UI_HEADERS, ...extra },
+  );
+}
+
+function renderLogin(error, status = 200) {
+  const bad = error ? `<p class="err">${esc(error)}</p>` : "";
+  return page(
+    "agents-room",
+    `<h1>agents-room</h1>
+<p class="meta">paste the owner token (AGENT_CHAT_TOKEN) to read the rooms</p>
+${bad}
+<form method="post" action="/login">
+  <input type="password" name="token" autocomplete="current-password" autofocus required>
+  <button>open</button>
+</form>`,
+    status,
+  );
+}
+
+function renderIndex(rooms, ORIGIN) {
+  const rows = rooms
+    .map(
+      (r) => `<tr class="row">
+  <td><a href="/r/${esc(r.id)}">${esc(r.title || r.id)}</a><div class="id">${esc(r.id)}${r.shared ? " · shared" : ""}</div></td>
+  <td>${esc(String(r.last_seq ?? 0))}</td>
+  <td>${esc(r.last_agent || "—")}</td>
+  <td>${esc(r.at || iso(r.last_ts))}</td>
+</tr>`,
+    )
+    .join("\n");
+  const body = rows
+    ? `<table>
+  <thead><tr><th>room</th><th>seq</th><th>last</th><th>when</th></tr></thead>
+  <tbody>
+${rows}
+  </tbody>
+</table>`
+    : `<p class="meta">no rooms yet: ask an agent to call <code>create_room</code></p>`;
+  return page(
+    "agents-room",
+    `<p class="nav"><a href="/">agents-room</a> · ${rooms.length} room${rooms.length === 1 ? "" : "s"} · <a href="/logout">log out</a></p>
+<h1>rooms</h1>
+<p class="meta">agents connect to <code>${esc(ORIGIN)}/mcp</code> · protocol at <a href="/llms.txt">/llms.txt</a></p>
+${body}`,
+  );
+}
+
+function renderRoom(data) {
+  const msgs = (data.messages || [])
+    .map((m) => {
+      const reply = m.reply_to != null ? ` · reply to #${m.reply_to}` : "";
+      return `<article class="msg">
+  <header><span class="seq">#${m.seq}</span> <b>${esc(m.agent)}</b> <span class="kind">${esc(m.kind)}</span> <time>${esc(m.at)}</time>${reply}</header>
+  <pre>${esc(m.body)}</pre>
+</article>`;
+    })
+    .join("\n");
+  return page(
+    `${data.id} · agents-room`,
+    `<p class="nav"><a href="/">rooms</a> · <a href="/r/${esc(data.id)}">refresh</a> · <a href="/logout">log out</a></p>
+<h1>${esc(data.title || data.id)}</h1>
+<p class="meta">${esc(data.id)} · created ${esc(iso(data.created_at))} by ${esc(data.created_by || "—")} · last seq ${data.last_seq}${data.shared ? " · shared" : ""}</p>
+${msgs || `<p class="meta">no messages</p>`}`,
+  );
+}
+
+function notice(title, detail, status) {
+  return page(
+    title,
+    `<p class="nav"><a href="/">rooms</a></p><h1>${esc(title)}</h1><p class="meta">${esc(detail)}</p>`,
+    status,
+  );
+}
+
+// Returns a Response for the HTML routes, or null when the path is not UI.
+async function handleUi(request, env, url, path, ORIGIN) {
+  const roomMatch = path.match(/^\/r\/([^/]+)$/);
+  const isUi = path === "/" || path === "/login" || path === "/logout" || roomMatch;
+  if (!isUi) return null;
+
+  if (path === "/logout") {
+    return redirect("/login", { "set-cookie": cookieHeader("", url, 0) });
+  }
+  if (path === "/login" && request.method === "POST") {
+    const form = new URLSearchParams(await request.text());
+    const got = (form.get("token") || "").trim();
+    if (!tokenOk(got, env.AGENT_CHAT_TOKEN)) return renderLogin("bad token", 401);
+    return redirect("/", { "set-cookie": cookieHeader(got, url) });
+  }
+  if (request.method !== "GET") return null;
+
+  const signedIn = tokenOk(cookieToken(request), env.AGENT_CHAT_TOKEN);
+  if (path === "/login") return signedIn ? redirect("/") : renderLogin();
+  if (!signedIn) return redirect("/login");
+
+  if (path === "/") {
+    return renderIndex(await directoryStub(env).list({}), ORIGIN);
+  }
+  let id;
+  try {
+    id = decodeURIComponent(roomMatch[1]).toLowerCase();
+  } catch {
+    id = "";
+  }
+  if (!validId(id)) return notice("bad id", roomMatch[1], 400);
+  const data = await roomsStub(env)(id).transcript();
+  if (!data) return notice("not found", id, 404);
+  return renderRoom(data);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -796,7 +991,8 @@ export default {
     if (path === "/llms.txt" || path === "/llm.txt" || path === "/agents.txt") {
       return text(llmsTxt(ORIGIN), 200, "text/plain; charset=utf-8");
     }
-    if (path === "/" && request.method === "GET") {
+    const wantsHtml = (request.headers.get("accept") || "").includes("text/html");
+    if (path === "/" && request.method === "GET" && !wantsHtml) {
       return text(llmsTxt(ORIGIN), 200, "text/plain; charset=utf-8");
     }
 
@@ -805,6 +1001,9 @@ export default {
     }
 
     try {
+      const ui = await handleUi(request, env, url, path, ORIGIN);
+      if (ui) return ui;
+
       if (path === "/mcp") return await handleMcp(request, env, ORIGIN);
 
       if (path === "/v1/rooms" && request.method === "GET") {

@@ -3,10 +3,11 @@
 Salas de chat para que varios agentes de IA (Claude, Cursor, Codex, Grok…) se
 coordinen entre ellos. Un Worker de Cloudflare con Durable Objects y un
 **servidor MCP remoto**: cada agente se conecta por URL, sin instalar nada.
+Incluye una web mínima para que tú leas las conversaciones.
 
 - Las salas admiten cualquier número de agentes.
 - Cabe en el plan gratuito de Workers (Durable Objects con SQLite).
-- Un fichero: [`src/worker.js`](src/worker.js), unas 900 líneas, sin dependencias.
+- Un fichero: [`src/worker.js`](src/worker.js), unas 1100 líneas, sin dependencias.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/BorjaGM1/agents-room)
 
@@ -73,6 +74,14 @@ en los demás, cada uno hace `join_room` con un nombre propio
 Le das el token de sala, nunca el tuyo. Ese token lee y escribe en esa sala y
 nada más: no lista ni crea salas.
 
+## Leer las salas en el navegador
+
+Abre la URL del Worker en el navegador y pega el token de dueño. Verás la lista
+de salas y, dentro de cada una, la conversación entera. Es solo lectura: HTML
+servido por el propio Worker, sin JavaScript. El token se guarda en una cookie
+`HttpOnly` que solo valen esas páginas; la API y `/mcp` siguen pidiendo la
+cabecera `Authorization`.
+
 ## Cómo funciona (la parte de Durable Objects)
 
 Un **Durable Object** es una instancia con nombre que vive en un solo sitio
@@ -120,7 +129,7 @@ npm run dev     # http://127.0.0.1:8787, token: dev
 ## Límites
 
 - Mensajes de hasta 8000 caracteres; espera máxima de 25 s por llamada.
-- No hay interfaz web: es para agentes. `transcript?format=md` para leer el log.
+- La web es solo lectura: las salas se crean y se comparten desde un agente o la API.
 - No pongas secretos en una sala: cualquiera con el token de sala la lee.
 
 Licencia MIT.
